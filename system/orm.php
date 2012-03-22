@@ -2,6 +2,8 @@
 
 defined('COT_CODE') or die('Wrong URL.');
 
+(function_exists('version_compare') && version_compare(PHP_VERSION, '5.3.0', '>=')) or die('PHP version 5.3 or higher is required.');
+
 require_once cot_langfile('orm', 'core');
 
 /**
@@ -13,39 +15,70 @@ require_once cot_langfile('orm', 'core');
  * @package Cotonti
  * @version 1.2
  * @author Gert Hengeveld
- * @copyright (c) Cotonti Team 2011
+ * @copyright (c) Cotonti Team 2011-2012
  * @license BSD
  */
 abstract class CotORM
 {
-	protected $class_name = '';
-	protected $table_name = '';
-	protected $columns = array();
+	/**
+	 * Concrete ORM class name
+	 * @var string 
+	 */
+	protected static $class_name = '';
+	/**
+	 * SQL table name
+	 * @var string 
+	 */
+	protected static $table_name = '';
+	/**
+	 * Column definitions
+	 * @var array
+	 */
+	protected static $columns = array();
+	/**
+	 * Global database connection reference
+	 * @var CotDB
+	 */
+	protected static $db = null;
+	/**
+	 * Object data
+	 * @var array
+	 */
 	protected $data = array();
+	
+	/**
+	 * Static constructor
+	 * 
+	 * @global CotDB $db Database connection
+	 */
+	public static function __init()
+	{
+		global $db;
+		static::$db = $db;
+	}
 
 	/**
 	 * Include reference to $db for easy access in methods.
 	 * Object data can be passed
 	 *
-	 * @param type $data
+	 * @param array $data Raw data
 	 */
 	public function __construct($data = array())
 	{
-		global $db;
-		$this->db = $db;
 		$this->data = $data;
-		$this->class_name = get_class($this);
+		static::$class_name = get_called_class();
 	}
 
 	/**
 	 * Returns table name including prefix.
 	 *
-	 * @return type
+	 * @return string
+	 * @global string $db_x Database table prefix
 	 */
-	protected function tableName()
+	protected static function tableName()
 	{
 		global $db_x;
-		return $db_x.$this->table_name;
+		return $db_x.static::$table_name;
 	}
 
 	/**
@@ -53,9 +86,9 @@ abstract class CotORM
 	 *
 	 * @return string
 	 */
-	protected function primaryKey()
+	protected static function primaryKey()
 	{
-		foreach ($this->columns as $column => $info)
+		foreach (static::$columns as $column => $info)
 		{
 			if ($info['primary_key']) return $column;
 		}
@@ -76,7 +109,7 @@ abstract class CotORM
 	{
 		if ($key !== null && $value !== null)
 		{
-			if (array_key_exists($key, $this->columns) && !$this->columns[$key]['locked'])
+			if (array_key_exists($key, static::$columns) && !static::$columns[$key]['locked'])
 			{
 				$this->data[$key] = $value;
 				return true;
@@ -87,19 +120,19 @@ abstract class CotORM
 		{
 			if ($key !== null)
 			{
-				if (array_key_exists($key, $this->columns) && !$this->columns[$key]['hidden'])
+				if (array_key_exists($key, static::$columns) && !static::$columns[$key]['hidden'])
 				{
-					return ($this->columns[$key]['type'] == 'object') ?
+					return (static::$columns[$key]['type'] == 'object') ?
 						unserialize($this->data[$key]) : $this->data[$key];
 				}
 			}
 			else
 			{
 				$data = array();
-				foreach ($this->columns as $key => $val)
+				foreach (static::$columns as $key => $val)
 				{
-					if ($this->columns[$key]['hidden']) continue;
-					$data[$key] = ($this->columns[$key]['type'] == 'object') ?
+					if (static::$columns[$key]['hidden']) continue;
+					$data[$key] = (static::$columns[$key]['type'] == 'object') ?
 						unserialize($this->data[$key]) : $this->data[$key];
 				}
 				return $data;
@@ -114,30 +147,16 @@ abstract class CotORM
 	 * @param bool $include_hidden Return hidden columns?
 	 * @return array
 	 */
-	public function columns($include_locked = false, $include_hidden = false)
+	public static function columns($include_locked = false, $include_hidden = false)
 	{
 		$cols = array();
-		foreach ($this->columns as $key => $val)
+		foreach (static::$columns as $key => $val)
 		{
-			if (!$include_hidden && $this->columns[$key]['hidden']) continue;
-			if (!$include_locked && $this->columns[$key]['locked']) continue;
-			$cols[$key] = $this->columns[$key];
+			if (!$include_hidden && static::$columns[$key]['hidden']) continue;
+			if (!$include_locked && static::$columns[$key]['locked']) continue;
+			$cols[$key] = static::$columns[$key];
 		}
 		return $cols;
-	}
-
-	/**
-	 * Count records matching condition
-	 *
-	 * @param mixed $conditions Numeric array of SQL WHERE conditions or a single
-	 *  condition as a string
-	 * @return int Number of records found
-	 */
-	public static function count($conditions)
-	{
-		CotORM::checkPHPVersion();
-		$obj = new static();
-		return $obj->countRows($conditions);
 	}
 
 	/**
@@ -153,9 +172,7 @@ abstract class CotORM
 	 */
 	public static function find($conditions, $limit = 0, $offset = 0, $order = '', $way = 'ASC')
 	{
-		CotORM::checkPHPVersion();
-		$obj = new static();
-		return $obj->fetch($conditions, $limit, $offset, $order, $way);
+		return static::fetch($conditions, $limit, $offset, $order, $way);
 	}
 
 	/**
@@ -169,9 +186,7 @@ abstract class CotORM
 	 */
 	public static function findAll($limit = 0, $offset = 0, $order = '', $way = 'ASC')
 	{
-		CotORM::checkPHPVersion();
-		$obj = new static();
-		return $obj->fetch(array(), $limit, $offset, $order, $way);
+		return static::fetch(array(), $limit, $offset, $order, $way);
 	}
 
 	/**
@@ -182,9 +197,7 @@ abstract class CotORM
 	 */
 	public static function findByPk($pk)
 	{
-		CotORM::checkPHPVersion();
-		$obj = new static();
-		$res = $obj->fetch("{$obj->primaryKey()} = '$pk'", 1);
+		$res = static::fetch(static::primaryKey()." = '$pk'", 1);
 		return ($res) ? $res[0] : null;
 	}
 
@@ -196,15 +209,15 @@ abstract class CotORM
 	 * @param int $limit Maximum number of returned records or 0 for unlimited
 	 * @param int $offset Return records starting from offset (requires $limit > 0)
 	 * @return array List of objects matching conditions or null
+	 * @global string $db_x Database table name prefix
 	 */
-	protected function fetch($conditions = array(), $limit = 0, $offset = 0, $order = '', $way = 'DESC')
+	protected static function fetch($conditions = array(), $limit = 0, $offset = 0, $order = '', $way = 'DESC')
 	{
 		global $db_x;
-		$table = $this->tableName();
+		$table = static::tableName();
 		$columns = array();
 		$joins = array();
-		$obj = new $this->class_name();
-		$cols = $obj->columns(true, true);
+		$cols = static::columns(true, true);
 		foreach ($cols as $col => $data)
 		{
 			$columns[] = "`$table`.`$col`";
@@ -220,19 +233,18 @@ abstract class CotORM
 		$columns = implode(', ', $columns);
 		$joins = implode(' ', $joins);
 
-		list($where, $params) = $this->parseConditions($conditions);
+		list($where, $params) = static::parseConditions($conditions);
 
 		$order = ($order) ? "ORDER BY `$order` $way" : '';
 		$limit = ($limit) ? "LIMIT $offset, $limit" : '';
 
 		$objects = array();
-		$res = $this->db->query("
+		$res = static::$db->query("
 			SELECT $columns FROM $table $joins $where $order $limit
 		", $params);
 		while ($row = $res->fetch(PDO::FETCH_ASSOC))
 		{
-			$obj = new $this->class_name();
-			$obj->data = $row;
+			$obj = new static($row);
 			$objects[] = $obj;
 		}
 		return (count($objects) > 0) ? $objects : null;
@@ -245,12 +257,12 @@ abstract class CotORM
 	 *  condition as a string
 	 * @return int
 	 */
-	public function countRows($conditions)
+	public static function count($conditions = array())
 	{
-		list($where, $params) = $this->parseConditions($conditions);
+		list($where, $params) = static::parseConditions($conditions);
 
-		return (int)$this->db->query("
-			SELECT COUNT(*) FROM ".$this->tableName()." $where
+		return (int) static::$db->query("
+			SELECT COUNT(*) FROM ".static::tableName()." $where
 		", $params)->fetchColumn();
 	}
 
@@ -261,10 +273,10 @@ abstract class CotORM
 	 * @param array $params Optional PDO params to pass through
 	 * @return array SQL WHERE part and PDO params
 	 */
-	protected function parseConditions($conditions, $params = array())
+	protected static function parseConditions($conditions, $params = array())
 	{
 		$where = '';
-		$table = $this->tableName();
+		$table = static::tableName();
 		if (!is_array($conditions)) $conditions = array($conditions);
 		if (count($conditions) > 0)
 		{
@@ -272,6 +284,7 @@ abstract class CotORM
 			foreach ($conditions as $condition)
 			{
 				$parts = array();
+				// TODO support more SQL operators
 				preg_match_all('/(.+?)([<>= ]+)(.+)/', $condition, $parts);
 				$column = trim($parts[1][0]);
 				$operator = trim($parts[2][0]);
@@ -295,11 +308,11 @@ abstract class CotORM
 	 */
 	protected function loadData()
 	{
-		$pk = $this->primaryKey();
+		$pk = static::primaryKey();
 		if (!$this->data[$pk]) return false;
-		$res = $this->db->query("
+		$res = static::$db->query("
 			SELECT *
-			FROM `".$this->tableName()."`
+			FROM `".static::tableName()."`
 			WHERE `$pk` = ?
 			LIMIT 1
 		", array($this->data[$pk]))->fetch(PDO::FETCH_ASSOC);
@@ -317,72 +330,73 @@ abstract class CotORM
 	 *
 	 * @param array $data Query data
 	 * @return bool
+	 * @global string $db_x Database table name prefix
 	 */
-	protected function validateData($data, $for = 'insert')
+	protected static function validateData($data, $for = 'insert')
 	{
 		global $db_x;
 		if (!is_array($data)) return;
 
 		foreach ($data as $column => $value)
 		{
-			if (!isset($this->columns[$column]))
+			if (!isset(static::$columns[$column]))
 			{
 				cot_error(cot_rc("InvalidColumnName", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if ($this->columns[$column]['auto_increment'])
+			if (static::$columns[$column]['auto_increment'])
 			{
-				cot_error(cot_rc("CantUpdateAutoIncrementColumn", array($column)), $column);
+				cot_error(cot_rc("CantUpdateAutoIncrementColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if ($for == 'update' && $this->columns[$column]['primary_key'])
+			if ($for == 'update' && static::$columns[$column]['primary_key'])
 			{
 				cot_error(cot_rc("CantUpdatePrimaryKeyColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if ($for == 'update' && $this->columns[$column]['locked'])
+			if ($for == 'update' && static::$columns[$column]['locked'])
 			{
 				cot_error(cot_rc("CantUpdateLockedColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if (isset($this->columns[$column]['minlength']) && mb_strlen($value) < $this->columns[$column]['minlength'])
+			if (isset(static::$columns[$column]['minlength']) && mb_strlen($value) < static::$columns[$column]['minlength'])
 			{
 				cot_error(cot_rc("ValueIsBelowMinimumLength", array(
 					'column' => $column,
-					'minlength' => $this->columns[$column]['minlength'],
+					'minlength' => static::$columns[$column]['minlength'],
 					'length' => mb_strlen($value)
 				)), $column);
 				return FALSE;
 			}
-			if (isset($this->columns[$column]['maxlength']) && mb_strlen($value) > $this->columns[$column]['maxlength'])
+			if (isset(static::$columns[$column]['maxlength']) && mb_strlen($value) > static::$columns[$column]['maxlength'])
 			{
 				cot_error(cot_rc("ValueExceedsMaximumLength", array(
 					'column' => $column,
-					'maxlength' => $this->columns[$column]['maxlength'],
+					'maxlength' => static::$columns[$column]['maxlength'],
 					'length' => mb_strlen($value)
 				)), $column);
 				return FALSE;
 			}
-			if (isset($this->columns[$column]['validators']))
+			if (isset(static::$columns[$column]['validators']))
 			{
-				if (!is_array($this->columns[$column]['validators']))
+				if (!is_array(static::$columns[$column]['validators']))
 				{
-					$this->columns[$column]['validators'] = array($this->columns[$column]['validators']);
+					static::$columns[$column]['validators'] = array(static::$columns[$column]['validators']);
 				}
-				foreach ($this->columns[$column]['validators'] as $validator)
+				foreach (static::$columns[$column]['validators'] as $validator)
 				{
-					if (function_exists($validator))
+					if (is_callable($validator))
 					{
-						if (!call_user_func($validator, $value, $column)) return FALSE;
+						if (!$validator($value, $column)) return FALSE;
 					}
-					elseif (method_exists($this, $validator))
+					elseif (method_exists(static::$class_name, $validator))
 					{
-						if (!call_user_func(array($this, $validator), $value, $column)) return FALSE;
+						if (!call_user_func(array(static::$class_name, $validator), $value, $column)) return FALSE;
 					}
 				}
 			}
 			$typecheck_pass = TRUE;
-			switch ($this->columns[$column]['type'])
+			switch (static::$columns[$column]['type'])
 			{
 				case 'int':
 					if (!is_int($value)) $typecheck_pass = FALSE;
@@ -405,12 +419,12 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			if ($this->columns[$column]['foreign_key'] && $this->columns[$column]['default_value'] !== $value)
+			if (static::$columns[$column]['foreign_key'] && static::$columns[$column]['default_value'] !== $value)
 			{
-				$fk = explode(':', $this->columns[$column]['foreign_key']);
-				if (count($fk) == 2 && $this->db->fieldExists($db_x.$fk[0], $fk[1]))
+				$fk = explode(':', static::$columns[$column]['foreign_key']);
+				if (count($fk) == 2 && static::$db->fieldExists($db_x.$fk[0], $fk[1]))
 				{
-					if ($this->db->query("SELECT `{$fk[1]}` FROM `$db_x{$fk[0]}` WHERE `{$fk[1]}` = ?", array($value))->rowCount() == 0)
+					if (static::$db->query("SELECT `{$fk[1]}` FROM `$db_x{$fk[0]}` WHERE `{$fk[1]}` = ?", array($value))->rowCount() == 0)
 					{
 						cot_error(cot_rc("ForeignKeyCheckFailed", array(
 							'column' => $column,
@@ -433,10 +447,10 @@ abstract class CotORM
 	 * @param string $for 'insert' or 'update'
 	 * @return array Prepared query data
 	 */
-	protected function prepData($data, $for)
+	protected static function prepData($data, $for)
 	{
 		global $sys;
-		foreach ($this->columns as $column => $rules)
+		foreach (static::$columns as $column => $rules)
 		{
 			if ($for == 'insert' && isset($rules['on_insert']) && !isset($data[$column]))
 			{
@@ -490,6 +504,11 @@ abstract class CotORM
 			{
 				$data[$column] = serialize($data[$column]);
 			}
+			// Skip primary keys, auto_increment and locked fields on update
+			if ($for == 'update' && ($rules['auto_increment'] || $rules['primary_key'] || $rules['locked']))
+			{
+				unset($data[$column]);
+			}
 		}
 		return $data;
 	}
@@ -502,19 +521,16 @@ abstract class CotORM
 	 */
 	public function save($action = null)
 	{
-		global $usr;
-		cot_block($usr['auth_write']);
-		$table = $this->tableName();
-		$pk = $this->primaryKey();
+		$table = static::tableName();
+		$pk = static::primaryKey();
 		if ($this->data[$pk] && static::findByPk($this->data[$pk]))
 		{
-			cot_block($usr['isadmin']);
 			if (!$action || $action == 'update')
 			{
-				$data = $this->prepData($this->data, 'update');
-				if ($this->validateData($data))
+				$data = static::prepData($this->data, 'update');
+				if (static::validateData($data, 'update'))
 				{
-					$res = $this->db->update($table, $data, "$pk = ?",
+					$res = static::$db->update($table, $data, "$pk = ?",
 						array($this->data[$pk])
 					);
 					if ($res !== FALSE)
@@ -526,13 +542,13 @@ abstract class CotORM
 		}
 		elseif (!$action || $action == 'insert')
 		{
-			$data = $this->prepData($this->data, 'insert');
-			if ($this->validateData($data))
+			$data = static::prepData($this->data, 'insert');
+			if (static::validateData($data, 'insert'))
 			{
-				$res = $this->db->insert($table, $data);
+				$res = static::$db->insert($table, $data);
 				if ($res)
 				{
-					$this->data[$pk] = $this->db->lastInsertId();
+					$this->data[$pk] = static::$db->lastInsertId();
 					return 'insert';
 				}
 			}
@@ -567,22 +583,21 @@ abstract class CotORM
 	 * @param array $params Array of statement input parameters, see http://www.php.net/manual/en/pdostatement.execute.php
 	 * @return int Number of records removed on success or FALSE on error
 	 */
-	public function delete($condition, $params = array())
+	public static function delete($condition, $params = array())
 	{
-		return $this->db->delete($this->tableName(), $condition, $params);
+		return static::$db->delete(static::tableName(), $condition, $params);
 	}
 
 	/**
 	 * Imports column data from POST, GET or otherwise and returns them as associative array.
 	 *
-	 * @return array
+	 * @param string $method Custom request method. Current $_SERVER['REQUEST_METHOD'] is used by default.
+	 * @return CotORM
 	 */
-	public static function import()
+	public static function import($method = '')
 	{
-		CotORM::checkPHPVersion();
 		$vars = array();
-		$obj = new static();
-		$columns = $obj->columns(true, true);
+		$columns = static::columns(true, true);
 		foreach ($columns as $name => $data)
 		{
 			if ($data['auto_increment']) continue;
@@ -609,34 +624,10 @@ abstract class CotORM
 					break;
 			}
 			$maxlen = ($data['maxlength']) ? $data['maxlength'] : 0;
-			$vars[$name] = cot_import($name, $_SERVER['REQUEST_METHOD'], $filter, $maxlen);
+			if (empty($method)) $method = $_SERVER['REQUEST_METHOD'];
+			$vars[$name] = cot_import($name, $method, $filter, $maxlen);
 		}
-		return $vars;
-	}
-
-	/**
-	 * Die if PHP version is lower than 5.3.
-	 *
-	 * PHP 5.3 is required for late static bindings used in finder methods.
-	 * CotORM can still be used with older versions, but finder methods
-	 * must be circumvented by instantiating objects within the controller
-	 * instead of retrieving object instances through a finder. For example:
-	 *   $obj = new MyClass();
-	 *   $obj->loadData($pk);
-	 * Instead of:
-	 *   $obj = MyClass::findByPk($pk);
-	 */
-	public static function checkPHPVersion()
-	{
-		static $versioncompare = null;
-		if ($versioncompare === null)
-		{
-			$versioncompare = version_compare(PHP_VERSION, '5.3.0');
-		}
-		if ($versioncompare == -1)
-		{
-			die('PHP version 5.3 or higher is required.');
-		}
+		return new static($vars);
 	}
 
 	/**
@@ -646,11 +637,9 @@ abstract class CotORM
 	 */
 	public static function createTable()
 	{
-		global $db;
-		$obj = new static();
-		$table = $obj->tableName();
-		$pk = $obj->primaryKey();
-		$cols = $obj->columns(true, true);
+		$table = static::tableName();
+		$pk = static::primaryKey();
+		$cols = static::columns(true, true);
 
 		$indexes = array();
 		$columns = array();
@@ -684,7 +673,7 @@ abstract class CotORM
 		}
 		$columns = implode(', ', array_merge($columns, $indexes));
 
-		return (bool) $db->query("
+		return (bool) static::$db->query("
 			CREATE TABLE IF NOT EXISTS `$table` ($columns)
 			DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci
 		");
@@ -697,12 +686,13 @@ abstract class CotORM
 	 */
 	public static function dropTable()
 	{
-		global $db;
-		$obj = new static();
-		return (bool) $db->query("
-			DROP TABLE IF EXISTS `".$obj->tableName()."`
+		return (bool) static::$db->query("
+			DROP TABLE IF EXISTS `".static::tableName()."`
 		");
 	}
 }
+
+// Class initialization for some static variables
+CotORM::__init();
 
 ?>
