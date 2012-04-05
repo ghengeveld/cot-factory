@@ -49,7 +49,7 @@ abstract class CotORM
 	/**
 	 * Static constructor
 	 * 
-	 * @global CotDB $db Database connection
+	 * @global CotDB $db Database connection, for easy access in methods
 	 */
 	public static function __init()
 	{
@@ -58,8 +58,7 @@ abstract class CotORM
 	}
 
 	/**
-	 * Include reference to $db for easy access in methods.
-	 * Object data can be passed
+	 * Instance constructor
 	 *
 	 * @param array $data Raw data
 	 */
@@ -98,42 +97,42 @@ abstract class CotORM
 	/**
 	 * Getter and setter for object data
 	 *
-	 * @param string $key Optional key to fetch a single value
+	 * @param string $column Optional column name to set data or fetch a single value
 	 * @param mixed $value Optional value to set
 	 * @return mixed
 	 *	array of key->value pairs, or
-	 *  string value if $key was provided, or
+	 *  string value if $column was provided, or
 	 *  boolean if $value was provided
 	 */
-	public function data($key = null, $value = null)
+	public function data($column = null, $value = null)
 	{
-		if ($key !== null && $value !== null)
+		if (!is_null($column) && !is_null($value)) // Setter
 		{
-			if (array_key_exists($key, static::$columns) && !static::$columns[$key]['locked'])
+			if (array_key_exists($column, static::$columns) && !static::$columns[$column]['locked'])
 			{
-				$this->data[$key] = $value;
+				$this->data[$column] = $value;
 				return true;
 			}
 			return false;
 		}
-		else
+		else // Getter
 		{
-			if ($key !== null)
+			if (!is_null($column))
 			{
-				if (array_key_exists($key, static::$columns) && !static::$columns[$key]['hidden'])
+				if (array_key_exists($column, static::$columns) && !static::$columns[$column]['hidden'])
 				{
-					return (static::$columns[$key]['type'] == 'object') ?
-						unserialize($this->data[$key]) : $this->data[$key];
+					return (static::$columns[$column]['type'] == 'object') ?
+						unserialize($this->data[$column]) : $this->data[$column];
 				}
 			}
 			else
 			{
 				$data = array();
-				foreach (static::$columns as $key => $val)
+				foreach (static::$columns as $column => $val)
 				{
-					if (static::$columns[$key]['hidden']) continue;
-					$data[$key] = (static::$columns[$key]['type'] == 'object') ?
-						unserialize($this->data[$key]) : $this->data[$key];
+					if (static::$columns[$column]['hidden']) continue;
+					$data[$column] = (static::$columns[$column]['type'] == 'object') ?
+						unserialize($this->data[$column]) : $this->data[$column];
 				}
 				return $data;
 			}
@@ -150,11 +149,11 @@ abstract class CotORM
 	public static function columns($include_locked = false, $include_hidden = false)
 	{
 		$cols = array();
-		foreach (static::$columns as $key => $val)
+		foreach (static::$columns as $column => $properties)
 		{
-			if (!$include_hidden && static::$columns[$key]['hidden']) continue;
-			if (!$include_locked && static::$columns[$key]['locked']) continue;
-			$cols[$key] = static::$columns[$key];
+			if (!$include_hidden && static::$columns[$column]['hidden']) continue;
+			if (!$include_locked && static::$columns[$column]['locked']) continue;
+			$cols[$column] = static::$columns[$column];
 		}
 		return $cols;
 	}
@@ -213,22 +212,12 @@ abstract class CotORM
 	 */
 	protected static function fetch($conditions = array(), $limit = 0, $offset = 0, $order = '', $way = 'DESC')
 	{
-		global $db_x;
 		$table = static::tableName();
 		$columns = array();
 		$joins = array();
-		$cols = static::columns(true, true);
-		foreach ($cols as $col => $data)
+		foreach (static::columns(true, true) as $col => $data)
 		{
 			$columns[] = "`$table`.`$col`";
-			if ($data['foreign_key'] && strpos($data['foreign_key'], ':') !== null)
-			{
-				list($table_fk, $col_fk) = explode(':', $data['foreign_key']);
-				$table_fk = $db_x.$table_fk;
-				$table_fk_alias = cot_unique(8);
-				$columns[] = "`$table_fk_alias`.`$col_fk`";
-				$joins[] = "LEFT JOIN `$table_fk` AS `$table_fk_alias` ON `$table`.`$col` = `$table_fk_alias`.`$col_fk`";
-			}
 		}
 		$columns = implode(', ', $columns);
 		$joins = implode(' ', $joins);
@@ -335,55 +324,96 @@ abstract class CotORM
 	protected static function validateData($data, $for = 'insert')
 	{
 		global $db_x;
-		if (!is_array($data)) return;
+		if (!is_array($data))
+		{
+			cot_error('InvalidInput');
+			return FALSE;
+		}
+		
+		foreach (static::$columns as $column => $properties)
+		{
+			// Verify presence of required fields
+			if ($properties['required'] && !$properties['nullable'] && !array_key_exists($column, $data))
+			{
+				cot_error(cot_rc("ColumnIsRequired", array('column' => $column)), $column);
+				return FALSE;
+			}
+		}
 
 		foreach ($data as $column => $value)
 		{
+			// Verify existence of column in model
 			if (!isset(static::$columns[$column]))
 			{
 				cot_error(cot_rc("InvalidColumnName", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if (static::$columns[$column]['auto_increment'])
+			else
 			{
-				cot_error(cot_rc("CantUpdateAutoIncrementColumn", array('column' => $column)), $column);
-				return FALSE;
+				$properties = static::$columns[$column];
 			}
-			if ($for == 'update' && static::$columns[$column]['primary_key'])
+			
+			// Disallow update of primary_key
+			if ($for == 'update' && $properties['primary_key'])
 			{
 				cot_error(cot_rc("CantUpdatePrimaryKeyColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if ($for == 'update' && static::$columns[$column]['locked'])
+			
+			// Disallow insert/update of auto_increment columns
+			if ($properties['auto_increment'])
+			{
+				cot_error(cot_rc("CantSetAutoIncrementColumn", array('column' => $column)), $column);
+				return FALSE;
+			}
+			
+			// Disallow update of locked columns
+			if ($for == 'update' && $properties['locked'])
 			{
 				cot_error(cot_rc("CantUpdateLockedColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			if (isset(static::$columns[$column]['minlength']) && mb_strlen($value) < static::$columns[$column]['minlength'])
+			
+			// Check minimum length
+			if (isset($properties['minlength']) && mb_strlen($value) < $properties['minlength'])
 			{
 				cot_error(cot_rc("ValueIsBelowMinimumLength", array(
 					'column' => $column,
-					'minlength' => static::$columns[$column]['minlength'],
+					'minlength' => $properties['minlength'],
 					'length' => mb_strlen($value)
 				)), $column);
 				return FALSE;
 			}
-			if (isset(static::$columns[$column]['maxlength']) && mb_strlen($value) > static::$columns[$column]['maxlength'])
+			
+			// Check maximum length
+			if (is_int($properties['maxlength']) && mb_strlen($value) > $properties['maxlength'])
 			{
 				cot_error(cot_rc("ValueExceedsMaximumLength", array(
 					'column' => $column,
-					'maxlength' => static::$columns[$column]['maxlength'],
+					'maxlength' => $properties['maxlength'],
 					'length' => mb_strlen($value)
 				)), $column);
 				return FALSE;
 			}
-			if (isset(static::$columns[$column]['validators']))
+			
+			// Verify options, but allow NULL if nullable
+			if (isset($properties['options']) && !in_array($value, $properties['options']) && !(is_null($value) && $properties['nullable']))
 			{
-				if (!is_array(static::$columns[$column]['validators']))
+				cot_error(cot_rc('InvalidOption', array(
+					'column' => $column,
+					'options' => implode(', ', $properties['options'])
+				)), $column);
+				return FALSE;
+			}
+			
+			// Run custom validators
+			if (isset($properties['validators']))
+			{
+				if (!is_array($properties['validators']))
 				{
-					static::$columns[$column]['validators'] = array(static::$columns[$column]['validators']);
+					$properties['validators'] = array($properties['validators']);
 				}
-				foreach (static::$columns[$column]['validators'] as $validator)
+				foreach ($properties['validators'] as $validator)
 				{
 					if (is_callable($validator))
 					{
@@ -393,13 +423,36 @@ abstract class CotORM
 					{
 						if (!call_user_func(array(static::$class_name, $validator), $value, $column)) return FALSE;
 					}
+					elseif (is_bool($validator))
+					{
+						cot_error('CustomValidatorFailed', cot_rc(array(
+							'column' => $column
+						)), $column);
+						return FALSE;
+					}
+					else
+					{
+						cot_error('InvalidValidator', cot_rc(array(
+							'column' => $column
+						)), $column);
+						return FALSE;
+					}
 				}
 			}
+			
+			// Check datatype
 			$typecheck_pass = TRUE;
-			switch (static::$columns[$column]['type'])
+			switch ($properties['type'])
 			{
-				case 'int':
+				case 'tinyint':
+				case 'smallint':
+				case 'mediumint':
 					if (!is_int($value)) $typecheck_pass = FALSE;
+					break;
+				case 'int':
+				case 'integer':
+				case 'bigint':
+					if (!is_int($value) && !is_float($value)) $typecheck_pass = FALSE;
 					break;
 				case 'char':
 				case 'varchar':
@@ -407,7 +460,9 @@ abstract class CotORM
 					if (!is_string($value)) $typecheck_pass = FALSE;
 					break;
 				case 'decimal':
+				case 'numeric':
 				case 'float':
+				case 'double':
 					if (!is_int($value) && !is_double($value) && !is_float($value)) $typecheck_pass = FALSE;
 					break;
 			}
@@ -419,9 +474,11 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			if (static::$columns[$column]['foreign_key'] && static::$columns[$column]['default_value'] !== $value)
+			
+			// Check foreign key relation
+			if ($properties['foreign_key'] && $properties['default_value'] !== $value)
 			{
-				$fk = explode(':', static::$columns[$column]['foreign_key']);
+				$fk = explode(':', $properties['foreign_key']);
 				if (count($fk) == 2 && static::$db->fieldExists($db_x.$fk[0], $fk[1]))
 				{
 					if (static::$db->query("SELECT `{$fk[1]}` FROM `$db_x{$fk[0]}` WHERE `{$fk[1]}` = ?", array($value))->rowCount() == 0)
@@ -441,7 +498,8 @@ abstract class CotORM
 	}
 
 	/**
-	 * Prepare query data for usage
+	 * Prepares data for usage in db query, but doesn't validate anything or 
+	 * throw errors, therefore you should use validateData() as well.
 	 *
 	 * @param array $data Query data as column => value pairs
 	 * @param string $for 'insert' or 'update'
@@ -450,67 +508,127 @@ abstract class CotORM
 	protected static function prepData($data, $for)
 	{
 		global $sys;
-		foreach (static::$columns as $column => $rules)
+		foreach (static::$columns as $column => $properties)
 		{
-			if ($for == 'insert' && isset($rules['on_insert']) && !isset($data[$column]))
+			// Set values for empty or null columns
+			if (!isset($data[$column]))
 			{
-				if (is_string($rules['on_insert']))
+				if ($for == 'insert')
 				{
-					if ($rules['on_insert'] === 'NOW()')
+					if ($properties['default_value'])
 					{
-						$rules['on_insert'] = $sys['now'];
+						$data[$column] = $properties['default_value'];
 					}
-					if ($rules['on_insert'] === 'RANDOM()')
+					elseif ($properties['type'] == 'enum' && !$properties['nullable'])
 					{
-						if ($rules['type'] == 'varchar')
+						$data[$column] = $properties['options'][0];
+					}
+					if (isset($properties['on_insert']))
+					{
+						switch ($properties['on_insert'])
 						{
-							$length = ($rules['maxlength']) ? (int)$rules['maxlength'] : 255;
-							$rules['on_insert'] = cot_randomstring($length);
-						}
-						elseif ($rules['type'] == 'int')
-						{
-							$length = ($rules['maxlength']) ? (int)$rules['maxlength'] : 10;
-							$rules['on_insert'] = mt_rand(pow(10, $length-1), pow(10, $length)-1);
+							case 'NOW()':
+								$data[$column] = $sys['now'];
+								break;
+
+							case 'RANDOM()':
+								$data[$column] = static::generateRandom($properties['type'], $properties['maxlength'], $properties['signed']);
+								break;
+
+							case 'INC()':
+							case 'DEC()':
+								$data[$column] = 0;
+								break;
+
+							default:
+								$data[$column] = $properties['on_insert'];
+								break;
 						}
 					}
 				}
-				$data[$column] = $rules['on_insert'];
-			}
-			if ($for == 'update' && isset($rules['on_update']) && !isset($data[$column]))
-			{
-				if (is_string($rules['on_update']))
+				if ($for == 'update')
 				{
-					if ($rules['on_update'] === 'NOW()')
+					// Fallback to default value if NULL is not allowed.
+					if ($properties['default_value'] && !$properties['nullable'])
 					{
-						$rules['on_update'] = $sys['now'];
+						$data[$column] = $properties['default_value'];
 					}
-					if ($rules['on_update'] === 'RANDOM()')
+					if (isset($properties['on_update']))
 					{
-						if ($rules['type'] == 'varchar')
+						switch ($properties['on_update'])
 						{
-							$length = ($rules['maxlength']) ? (int)$rules['maxlength'] : 255;
-							$rules['on_update'] = cot_randomstring($length);
-						}
-						elseif ($rules['type'] == 'int')
-						{
-							$length = ($rules['maxlength']) ? (int)$rules['maxlength'] : 10;
-							$rules['on_update'] = mt_rand(pow(10, $length-1), pow(10, $length)-1);
+							case 'NOW()':
+								$data[$column] = $sys['now'];
+								break;
+
+							case 'RANDOM()':
+								$data[$column] = static::generateRandom($properties['type'], $properties['maxlength'], $properties['signed']);
+								break;
+
+							case 'INC()':
+								$data[$column] = "$column+1";
+								break;
+
+							case 'DEC()':
+								$data[$column] = "$column-1";
+								break;
+
+							default:
+								$data[$column] = $properties['on_update'];
+								break;
 						}
 					}
 				}
-				$data[$column] = $rules['on_update'];
 			}
-			if ($rules['type'] == 'object')
+			// Serialize objects before storing in database
+			if ($properties['type'] == 'object')
 			{
 				$data[$column] = serialize($data[$column]);
 			}
 			// Skip primary keys, auto_increment and locked fields on update
-			if ($for == 'update' && ($rules['auto_increment'] || $rules['primary_key'] || $rules['locked']))
+			if ($for == 'update' && ($properties['auto_increment'] || $properties['primary_key'] || $properties['locked']))
 			{
 				unset($data[$column]);
 			}
 		}
 		return $data;
+	}
+	
+	/**
+	 * Generates a random value
+	 *
+	 * @param string $datatype MySQL data type
+	 * @param mixed $maxlength Maximum display length (int) for integers and 
+	 *  strings, or a string representing precision and scale for floating-point
+	 *  and fixed-point numeric types.
+	 * @param bool $signed Allow negative numbers
+	 * @return mixed Random number or string
+	 */
+	protected static function generateRandom($datatype, $maxlength = null, $signed = false)
+	{
+		switch ($datatype)
+		{
+			case 'int':
+			case 'integer':
+			case 'tinyint':
+			case 'smallint':
+			case 'mediumint':
+			case 'bigint':
+				$length = $maxlength ? (int)$maxlength : 10;
+				$negation = $signed ? round(mt_rand(0, 1)) ? 1 : -1 : 1;
+				return mt_rand(pow(10, $length-1), pow(10, $length)-1) * $negation;
+			case 'float':
+			case 'double':
+			case 'real':
+			case 'decimal':
+			case 'numeric':
+				list($precision, $scale) = explode(',', $maxlength);
+				$negation = $signed ? round(mt_rand(0, 1)) ? 1 : -1 : 1;
+				return mt_rand(pow(10, $precision-1), pow(10, $precision)-1) / pow(10, $scale) * $negation;
+			default:
+				$length = $maxlength ? (int)$maxlength : 255;
+				return cot_randomstring($length);
+		}
 	}
 
 	/**
@@ -638,43 +756,49 @@ abstract class CotORM
 	public static function createTable()
 	{
 		$table = static::tableName();
-		$pk = static::primaryKey();
-		$cols = static::columns(true, true);
+		$columns = static::columns(true, true);
 
-		$indexes = array();
-		$columns = array();
-		foreach ($cols as $name => $params)
+		$query_indexes = array();
+		$query_columns = array();
+		foreach ($columns as $column => $properties)
 		{
 			$props = array();
-			$params['attributes'] !== NULL && $props[] = $params['attributes'];
-			$props[] = ($params['null']) ? 'NULL' : 'NOT NULL';
-			$params['default_value'] !== NULL && $props[] = "DEFAULT '{$params['default_value']}'";
-			$params['auto_increment'] && $props[] = 'AUTO_INCREMENT';
-			$props = implode(' ', $props);
+			$type = strtoupper($properties['type']);
+			if (in_array($type, array('INT', 'INTEGER', 'TINYINT', 'SMALLINT', 'MEDIUMINT', 'BIGINT', 'FLOAT', 'DOUBLE', 'REAL', 'DECIMAL', 'NUMERIC')))
+			{
+				$props[] = ($properties['signed']) ? 'SIGNED' : 'UNSIGNED';
+			}
+			$props[] = ($properties['nullable']) ? 'NULL' : 'NOT NULL';
+			$properties['default_value'] !== NULL && $props[] = "DEFAULT '{$properties['default_value']}'";
+			$properties['auto_increment'] && $props[] = 'AUTO_INCREMENT';
 
-			$params['primary_key'] && $indexes[] = "PRIMARY KEY (`$name`)";
-			$params['index'] && $indexes[] = "KEY `i_$name` (`$name`)";
-			$params['unique'] && $indexes[] = "UNIQUE KEY `u_$name` (`$name`)";
+			$properties['primary_key'] && $query_indexes[] = "PRIMARY KEY (`$column`)";
+			$properties['index'] && $query_indexes[] = "KEY `i_$column` (`$column`)";
+			$properties['unique'] && $query_indexes[] = "UNIQUE KEY `u_$column` (`$column`)";
 
-			$type = strtoupper($params['type']);
 			if ($type == 'OBJECT')
 			{
 				$type = 'TEXT';
 			}
-			if ($params['maxlength'])
+			elseif ($type == 'ENUM')
 			{
-				$type .= "({$params['maxlength']})";
+				$type .= "('". implode("', '", $properties['options']) ."')";
+			}
+			elseif ($properties['maxlength'])
+			{
+				$type .= "({$properties['maxlength']})";
 			}
 			elseif ($type == 'VARCHAR')
 			{
 				$type .= "(255)";
 			}
-			$columns[] = "`$name` $type $props";
+			$props = implode(' ', $props);
+			$query_columns[] = "`$column` $type $props";
 		}
-		$columns = implode(', ', array_merge($columns, $indexes));
+		$query_columns = implode(', ', array_merge($query_columns, $query_indexes));
 
 		return (bool) static::$db->query("
-			CREATE TABLE IF NOT EXISTS `$table` ($columns)
+			CREATE TABLE IF NOT EXISTS `$table` ($query_columns)
 			DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci
 		");
 	}

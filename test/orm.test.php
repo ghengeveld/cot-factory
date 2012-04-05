@@ -25,7 +25,7 @@ class TestProject extends CotORM
         ),
         'ownerid' => array(
             'type' => 'int',
- //          'foreign_key' => 'users:user_id',
+            'foreign_key' => 'users:user_id',
             'locked' => true
         ),
         'name' => array(
