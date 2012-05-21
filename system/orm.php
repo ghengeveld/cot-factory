@@ -814,6 +814,36 @@ abstract class CotORM
 			DROP TABLE IF EXISTS `".static::tableName()."`
 		");
 	}
+	
+	/**
+	 * Seed the table with data
+	 *
+	 * @param array $rowdata Numeric array representing table rows. 
+	 *  Each item should be a numeric array with column data.
+	 * @param array $columnnames Numeric array of column names. [optional]
+	 */
+	public static function seed($rowdata, $columnnames = array())
+	{
+		if ($rowdata && is_array($rowdata) && (!$columnnames || count($columnnames) == count($rowdata[0])))
+		{
+			$chunks = array_chunk($rowdata, 100);
+			foreach ($chunks as $chunk)
+			{
+				foreach ($chunk as &$row)
+				{
+					foreach ($row as &$value)
+					{
+						$value = mysql_real_escape_string($value);
+					}
+					$row = "'" . implode("', '", $row) . "'";
+				}
+				$values = '(' . implode('), (', $chunk) . ')';
+				$keys = ($columnnames) ? "(`" . implode("`,`", $columnnames) . "`)" : '';
+				
+				static::$db->query("INSERT IGNORE INTO `".static::tableName()."` $keys VALUES $values");
+			}
+		}
+	}
 }
 
 // Class initialization for some static variables
