@@ -93,37 +93,37 @@ function test_orm_basic()
 	{
 		return orm_test_fail('Imported object could be inserted');
 	}
-	
+
 	// Find the first project
 	$obj = TestProject::findByPk(1);
 	if (is_null($obj))
 	{
 		return orm_test_fail('findByPk() returned null');
 	}
-	if ($obj->data('name') !== 'Test')
+	if ($obj->name !== 'Test')
 	{
 		return orm_test_fail('First project name is not Test');
 	}
-	
+
 	// Fetch all objects at once
 	$projs = TestProject::findAll();
 	if (count($projs) !== 2)
 	{
 		return orm_test_fail('findAll() returned too few items (' . count($projs) . ')');
 	}
-	
+
 	// Update an item
 	$obj = TestProject::findByPk(2);
-	$obj->data('type', 'EXTERN');
+	$obj->type = 'EXTERN';
 	if (!$obj->update())
 	{
 		return orm_test_fail('Could not update an object');
 	}
 	if (count(TestProject::find("type = 'EXTERN'")) == 0)
 	{
-		return orm_test_fail('Update has not changed column value: ' . TestProject::findByPk(2)->data('type'));
+		return orm_test_fail('Update has not changed column value: ' . TestProject::findByPk(2)->type);
 	}
-	
+
 	// Remove an item
 	TestProject::delete('id = 1');
 	$count = TestProject::count();
@@ -131,9 +131,7 @@ function test_orm_basic()
 	{
 		return orm_test_fail('Invalid number of items after delete: ' . $count);
 	}
-	
+
 	TestProject::dropTable();
 	return true;
 }
-
-?>

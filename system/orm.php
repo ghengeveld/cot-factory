@@ -69,6 +69,45 @@ abstract class CotORM
 	}
 
 	/**
+	 * Getter for a column. Shortcut to $this->data($column).
+	 * @param  string $column Column name
+	 * @return mixed          Column value
+	 */
+	public function __get($column)
+	{
+		return $this->data($column);
+	}
+
+	/**
+	 * isset() handler for object properties.
+	 * @param  string  $column Column name
+	 * @return boolean         TRUE if the column has a value, FALSE otherwise.
+	 */
+	public function __isset($column)
+	{
+		return isset($this->data[$column]);
+	}
+
+	/**
+	 * Setter for a column. Shortcut to $this->data($column, $value).
+	 * @param string $column Column name
+	 * @param mixed  $value  Column value
+	 */
+	public function __set($column, $value)
+	{
+		return $this->data($column, $value);
+	}
+
+	/**
+	 * unset() handler for object properties.
+	 * @param string $column Column name
+	 */
+	public function __unset($column)
+	{
+		if (isset($this->data[$column])) unset($this->data[$column]);
+	}
+
+	/**
 	 * Returns table name including prefix.
 	 *
 	 * @return string
@@ -848,5 +887,3 @@ abstract class CotORM
 
 // Class initialization for some static variables
 CotORM::__init();
-
-?>
