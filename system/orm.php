@@ -18,7 +18,7 @@ require_once cot_langfile('orm', 'core');
  * @copyright (c) Cotonti Team 2011-2012
  * @license BSD
  */
-abstract class CotORM
+abstract class CotORM implements IteratorAggregate
 {
 	/**
 	 * Concrete ORM class name
@@ -105,6 +105,15 @@ abstract class CotORM
 	public function __unset($column)
 	{
 		if (isset($this->data[$column])) unset($this->data[$column]);
+	}
+
+	/**
+	 * Implements IteratorAggregate by returning an iterator for columns data.
+	 * @return ArrayIterator Iterator for the data.
+	 */
+	public function getIterator()
+	{
+		return new ArrayIterator($this->data);
 	}
 
 	/**
@@ -211,6 +220,19 @@ abstract class CotORM
 	public static function find($conditions, $limit = 0, $offset = 0, $order = '', $way = 'ASC')
 	{
 		return static::fetch($conditions, $limit, $offset, $order, $way);
+	}
+
+	/**
+	 * Retrieve the first matching object
+	 *
+	 * @param mixed $conditions Numeric array of SQL WHERE conditions or a single
+	 *  condition as a string
+	 * @return CotORM Object
+	 */
+	public static function findOne($conditions)
+	{
+		$res = static::fetch($conditions, 1);
+		return ($res) ? $res[0] : null;
 	}
 
 	/**

@@ -133,3 +133,41 @@ function test_orm_basic()
 
 	return TRUE;
 }
+
+// Tests iteration over object properties
+function test_orm_iterator()
+{
+	// Add a simple record
+	$obj = new TestProject(array(
+		'name' => 'Iterate',
+		'type' => 'TEST',
+		'ownerid' => 1
+	));
+	if (!$obj->insert())
+	{
+		return 'Could not insert a new project';
+	}
+
+	// Fetch a record and iterate over its properties
+	$obj = TestProject::findOne("name = 'Iterate'");
+	if (is_null($obj))
+	{
+		return 'find() returned null';
+	}
+
+	$valid_cols = array_keys(TestProject::columns(true, true));
+	foreach ($obj as $key => $val)
+	{
+		if ($key === 'name' && $val != 'Iterate')
+			return "Wrong name: $val";
+		elseif ($key === 'type' && $val != 'TEST')
+			return "Wrong type: $val";
+		elseif ($key === 'ownerid' && $val != 1)
+			return "Wrong ownerid: $val";
+		elseif (!in_array($key, $valid_cols))
+			return "Invalid colname: $key";
+	}
+
+	// All was ok
+	return TRUE;
+}
