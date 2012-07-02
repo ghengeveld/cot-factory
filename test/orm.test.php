@@ -15,61 +15,60 @@ require_once cot_incfile('orm');
 // Example model
 class TestProject extends CotORM
 {
-    protected static $table_name = 'projects';
-    protected static $columns = array(
-        'id' => array(
-            'type' => 'int',
-            'primary_key' => true,
-            'auto_increment' => true,
-            'locked' => true
-        ),
-        'ownerid' => array(
-            'type' => 'int',
-            'foreign_key' => 'users:user_id',
-            'locked' => true
-        ),
-        'name' => array(
-            'type' => 'varchar',
-            'length' => 50,
-            'unique' => true
-        ),
-        'metadata' => array(
-            'type' => 'object'
-        ),
-        'type' => array(
-            'type' => 'varchar',
-            'length' => 6
-        ),
-        'created' => array(
-            'type' => 'int',
-            'on_insert' => 'NOW()',
-            'locked' => true
-        ),
-        'updated' => array(
-            'type' => 'int',
-            'on_insert' => 'NOW()',
-            'on_update' => 'NOW()',
-            'locked' => true
-        )
-    );
+	protected static $table_name = 'projects';
+	protected static $columns = array(
+		'id' => array(
+			'type' => 'int',
+			'primary_key' => true,
+			'auto_increment' => true,
+			'locked' => true
+		),
+		'ownerid' => array(
+			'type' => 'int',
+			'foreign_key' => 'users:user_id',
+			'locked' => true
+		),
+		'name' => array(
+			'type' => 'varchar',
+			'length' => 50,
+			'unique' => true
+		),
+		'metadata' => array(
+			'type' => 'object'
+		),
+		'type' => array(
+			'type' => 'varchar',
+			'length' => 6
+		),
+		'created' => array(
+			'type' => 'int',
+			'on_insert' => 'NOW()',
+			'locked' => true
+		),
+		'updated' => array(
+			'type' => 'int',
+			'on_insert' => 'NOW()',
+			'on_update' => 'NOW()',
+			'locked' => true
+		)
+	);
 }
 
-// Run this to fail the test shortly
-function orm_test_fail($msg = '')
+// Prepare for a test
+function setup_orm()
 {
-	if (!empty($msg))
-	{
-		cot_error($msg);
-	}
+	TestProject::createTable();
+}
+
+// Cleanup the environment
+function teardown_orm()
+{
 	TestProject::dropTable();
-	return false;
 }
 
 // Tests basic ORM features
 function test_orm_basic()
 {
-	TestProject::createTable();
-
 	// Add a simple record
 	$obj = new TestProject(array(
 		'name' => 'Test',
@@ -81,7 +80,7 @@ function test_orm_basic()
 	));
 	if (!$obj->insert())
 	{
-		return orm_test_fail('Could not insert a new project');
+		return 'Could not insert a new project';
 	}
 
 	// Emulate import from POST
@@ -91,25 +90,25 @@ function test_orm_basic()
 	$obj = TestProject::import('POST');
 	if (!$obj->insert())
 	{
-		return orm_test_fail('Imported object could be inserted');
+		return 'Imported object could be inserted';
 	}
 
 	// Find the first project
 	$obj = TestProject::findByPk(1);
 	if (is_null($obj))
 	{
-		return orm_test_fail('findByPk() returned null');
+		return 'findByPk() returned null';
 	}
 	if ($obj->name !== 'Test')
 	{
-		return orm_test_fail('First project name is not Test');
+		return 'First project name is not Test';
 	}
 
 	// Fetch all objects at once
 	$projs = TestProject::findAll();
 	if (count($projs) !== 2)
 	{
-		return orm_test_fail('findAll() returned too few items (' . count($projs) . ')');
+		return 'findAll() returned too few items (' . count($projs) . ')';
 	}
 
 	// Update an item
@@ -117,11 +116,11 @@ function test_orm_basic()
 	$obj->type = 'EXTERN';
 	if (!$obj->update())
 	{
-		return orm_test_fail('Could not update an object');
+		return 'Could not update an object';
 	}
 	if (count(TestProject::find("type = 'EXTERN'")) == 0)
 	{
-		return orm_test_fail('Update has not changed column value: ' . TestProject::findByPk(2)->type);
+		return 'Update has not changed column value: ' . TestProject::findByPk(2)->type;
 	}
 
 	// Remove an item
@@ -129,9 +128,8 @@ function test_orm_basic()
 	$count = TestProject::count();
 	if ($count !== 1)
 	{
-		return orm_test_fail('Invalid number of items after delete: ' . $count);
+		return 'Invalid number of items after delete: ' . $count;
 	}
 
-	TestProject::dropTable();
-	return true;
+	return TRUE;
 }
