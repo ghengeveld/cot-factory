@@ -64,7 +64,14 @@ abstract class CotORM implements IteratorAggregate
 	 */
 	public function __construct($data = array())
 	{
-		$this->data = $data;
+		if (count($data) > 0)
+		{
+			foreach ($data as $column => $val)
+			{
+				$this->data[$column] = (static::$columns[$column]['type'] == 'object' && is_string($val)) ?
+					unserialize($val) : $val;
+			}
+		}
 		static::$class_name = get_called_class();
 	}
 
@@ -169,8 +176,7 @@ abstract class CotORM implements IteratorAggregate
 			{
 				if (array_key_exists($column, static::$columns) && !static::$columns[$column]['hidden'])
 				{
-					return (static::$columns[$column]['type'] == 'object') ?
-						unserialize($this->data[$column]) : $this->data[$column];
+					return $this->data[$column];
 				}
 			}
 			else
@@ -179,8 +185,7 @@ abstract class CotORM implements IteratorAggregate
 				foreach (static::$columns as $column => $val)
 				{
 					if ($val['hidden']) continue;
-					$data[$column] = (static::$columns[$column]['type'] == 'object') ?
-						unserialize($this->data[$column]) : $this->data[$column];
+					$data[$column] = $this->data[$column];
 				}
 				return $data;
 			}
