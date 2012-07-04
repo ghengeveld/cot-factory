@@ -4,40 +4,112 @@ defined('COT_CODE') or die('Wrong URL.');
 
 (function_exists('version_compare') && version_compare(PHP_VERSION, '5.3.0', '>=')) or die('PHP version 5.3 or higher is required.');
 
-require_once cot_incfile('cotemplate');
+require_once cot_incfile('forms');
 require_once cot_incfile('orm');
 
 /**
- * Basic View class
- * 
+ * View class for Cotonti. Defines how objects should be displayed.
+ *
+ * View classes should extend CotView to inherit its methods
+ * and must specify $model_class and $columns
+ *
  * @package Cotonti
  * @version 1.3
- * @author Vladimir Sibirov
- * @copyright (c) Cotonti Team 2011-2012
+ * @author Gert Hengeveld, Vladimir Sibirov
+ * @copyright (c) Cotonti Team 2012
  * @license BSD
  */
-class CotView extends XTemplate
+abstract class CotView
 {
 	/**
-	 * Binds a data object to template tags
-	 * @param CotORM $obj Data object
-	 * @param string $prefix Tag prefix
+	 * Custom display properties for columns
+	 * @var array
 	 */
-	public function bind($obj, $prefix = '')
+	protected static $properties = array();
+	/**
+	 * Model object containing data
+	 * @var CotORM
+	 */
+	protected $model = null;
+	/**
+	 * Template object
+	 * @var XTemplate
+	 */
+	protected $tpl = null;
+	/**
+	 * Item permissions, such as R/W/A
+	 * @var array
+	 */
+	protected $rights = array();
+
+
+	public function __construct($model, $tpl, $rights = array('R' => TRUE, 'W' => TRUE, 'A' => FALSE))
 	{
-		// TODO...
+		$this->model = $model;
+		$this->tpl = $tpl;
+		$this->rights = $rights;
 	}
 
 	/**
-	 * Generates form inputs for an object and binds them to template tags
-	 * @param CotORM $obj Data object
-	 * @param string $prefix Tag prefix
-	 * @param string $index Row index for multi-edit (grid) forms
+	 * Displays the object by assigning template tags for its properties.
+	 * @param  string $tag_prefix Prefix for TPL tags
+	 * @param  string $block      Full block name to render after tags are assigned, e.g. 'MAIN.ITEM_ROW'.
+	 * Omit it if you want to parse the block elsewhere.
 	 */
-	public function bindForm($obj, $prefix = '', $index = '')
+	public function display($tag_prefix = '', $block = '')
 	{
-		// TODO...
+		// Display all model properties
+		$class = get_class($this->model);
+		$cols = $class::columns(TRUE, FALSE);
+		foreach ($this->model as $prop => $val)
+		{
+			//$props = self::$properties[$prop];
+			if ($cols[$prop]['foreign_key'])
+			{
+				// TODO show linked data
+			}
+			else
+			{
+				$this->tpl->assign(array(
+					$tag_prefix . mb_strtoupper($prop) => $this->rights['R'] ? $val : ''
+				));
+			}
+		}
+
+		if (!empty($block))
+			$this->tpl->parse($block);
+	}
+
+	public function displayForm($tag_prefix = '', $block = '', $url = '')
+	{
+		$class = get_class($this->model);
+		$cols = $class::columns(TRUE, FALSE);
+		foreach ($this->model as $prop => $val)
+		{
+			//$props = self::$properties[$prop];
+			if ($cols[$prop]['foreign_key'])
+			{
+				// TODO show linked data
+			}
+			else
+			{
+				$this->tpl->assign(array(
+					$tag_prefix . mb_strtoupper($prop) => $this->rights['R'] ? $val : ''
+				));
+			}
+		}
+
+		if (!empty($block))
+			$this->tpl->parse($block);
+	}
+
+	public static function displayList($items, $tag_prefix = '', $block = '')
+	{
+
+	}
+
+	public static function displayListForm($items, $tag_prefix = '', $block = '', $url = '')
+	{
+
 	}
 }
-
-?>
