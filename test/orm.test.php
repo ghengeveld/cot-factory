@@ -15,61 +15,60 @@ require_once cot_incfile('orm');
 // Example model
 class TestProject extends CotORM
 {
-    protected static $table_name = 'projects';
-    protected static $columns = array(
-        'id' => array(
-            'type' => 'int',
-            'primary_key' => true,
-            'auto_increment' => true,
-            'locked' => true
-        ),
-        'ownerid' => array(
-            'type' => 'int',
-            'foreign_key' => 'users:user_id',
-            'locked' => true
-        ),
-        'name' => array(
-            'type' => 'varchar',
-            'length' => 50,
-            'unique' => true
-        ),
-        'metadata' => array(
-            'type' => 'object'
-        ),
-        'type' => array(
-            'type' => 'varchar',
-            'length' => 6
-        ),
-        'created' => array(
-            'type' => 'int',
-            'on_insert' => 'NOW()',
-            'locked' => true
-        ),
-        'updated' => array(
-            'type' => 'int',
-            'on_insert' => 'NOW()',
-            'on_update' => 'NOW()',
-            'locked' => true
-        )
-    );
+	protected static $table_name = 'projects';
+	protected static $columns = array(
+		'id' => array(
+			'type' => 'int',
+			'primary_key' => true,
+			'auto_increment' => true,
+			'locked' => true
+		),
+		'ownerid' => array(
+			'type' => 'int',
+			'foreign_key' => 'users:user_id',
+			'locked' => true
+		),
+		'name' => array(
+			'type' => 'varchar',
+			'length' => 50,
+			'unique' => true
+		),
+		'metadata' => array(
+			'type' => 'object'
+		),
+		'type' => array(
+			'type' => 'varchar',
+			'length' => 6
+		),
+		'created' => array(
+			'type' => 'int',
+			'on_insert' => 'NOW()',
+			'locked' => true
+		),
+		'updated' => array(
+			'type' => 'int',
+			'on_insert' => 'NOW()',
+			'on_update' => 'NOW()',
+			'locked' => true
+		)
+	);
 }
 
-// Run this to fail the test shortly
-function orm_test_fail($msg = '')
+// Prepare for a test
+function setup_orm()
 {
-	if (!empty($msg))
-	{
-		cot_error($msg);
-	}
+	TestProject::createTable();
+}
+
+// Cleanup the environment
+function teardown_orm()
+{
 	TestProject::dropTable();
-	return false;
 }
 
 // Tests basic ORM features
 function test_orm_basic()
 {
-	TestProject::createTable();
-
 	// Add a simple record
 	$obj = new TestProject(array(
 		'name' => 'Test',
@@ -81,7 +80,7 @@ function test_orm_basic()
 	));
 	if (!$obj->insert())
 	{
-		return orm_test_fail('Could not insert a new project');
+		return 'Could not insert a new project';
 	}
 
 	// Emulate import from POST
@@ -91,49 +90,84 @@ function test_orm_basic()
 	$obj = TestProject::import('POST');
 	if (!$obj->insert())
 	{
-		return orm_test_fail('Imported object could be inserted');
+		return 'Imported object could be inserted';
 	}
-	
+
 	// Find the first project
 	$obj = TestProject::findByPk(1);
 	if (is_null($obj))
 	{
-		return orm_test_fail('findByPk() returned null');
+		return 'findByPk() returned null';
 	}
-	if ($obj->data('name') !== 'Test')
+	if ($obj->name !== 'Test')
 	{
-		return orm_test_fail('First project name is not Test');
+		return 'First project name is not Test';
 	}
-	
+
 	// Fetch all objects at once
 	$projs = TestProject::findAll();
 	if (count($projs) !== 2)
 	{
-		return orm_test_fail('findAll() returned too few items (' . count($projs) . ')');
+		return 'findAll() returned too few items (' . count($projs) . ')';
 	}
-	
+
 	// Update an item
 	$obj = TestProject::findByPk(2);
-	$obj->data('type', 'EXTERN');
+	$obj->type = 'EXTERN';
 	if (!$obj->update())
 	{
-		return orm_test_fail('Could not update an object');
+		return 'Could not update an object';
 	}
 	if (count(TestProject::find("type = 'EXTERN'")) == 0)
 	{
-		return orm_test_fail('Update has not changed column value: ' . TestProject::findByPk(2)->data('type'));
+		return 'Update has not changed column value: ' . TestProject::findByPk(2)->type;
 	}
-	
+
 	// Remove an item
 	TestProject::delete('id = 1');
 	$count = TestProject::count();
 	if ($count !== 1)
 	{
-		return orm_test_fail('Invalid number of items after delete: ' . $count);
+		return 'Invalid number of items after delete: ' . $count;
 	}
-	
-	TestProject::dropTable();
-	return true;
+
+	return TRUE;
 }
 
-?>
+// Tests iteration over object properties
+function test_orm_iterator()
+{
+	// Add a simple record
+	$obj = new TestProject(array(
+		'name' => 'Iterate',
+		'type' => 'TEST',
+		'ownerid' => 1
+	));
+	if (!$obj->insert())
+	{
+		return 'Could not insert a new project';
+	}
+
+	// Fetch a record and iterate over its properties
+	$obj = TestProject::findOne("name = 'Iterate'");
+	if (is_null($obj))
+	{
+		return 'find() returned null';
+	}
+
+	$valid_cols = array_keys(TestProject::columns(true, true));
+	foreach ($obj as $key => $val)
+	{
+		if ($key === 'name' && $val != 'Iterate')
+			return "Wrong name: $val";
+		elseif ($key === 'type' && $val != 'TEST')
+			return "Wrong type: $val";
+		elseif ($key === 'ownerid' && $val != 1)
+			return "Wrong ownerid: $val";
+		elseif (!in_array($key, $valid_cols))
+			return "Invalid colname: $key";
+	}
+
+	// All was ok
+	return TRUE;
+}

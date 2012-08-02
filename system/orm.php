@@ -18,16 +18,16 @@ require_once cot_langfile('orm', 'core');
  * @copyright (c) Cotonti Team 2011-2012
  * @license BSD
  */
-abstract class CotORM
+abstract class CotORM implements IteratorAggregate
 {
 	/**
 	 * Concrete ORM class name
-	 * @var string 
+	 * @var string
 	 */
 	protected static $class_name = '';
 	/**
 	 * SQL table name
-	 * @var string 
+	 * @var string
 	 */
 	protected static $table_name = '';
 	/**
@@ -45,10 +45,10 @@ abstract class CotORM
 	 * @var array
 	 */
 	protected $data = array();
-	
+
 	/**
 	 * Static constructor
-	 * 
+	 *
 	 * @global CotDB $db Database connection, for easy access in methods
 	 */
 	public static function __init()
@@ -64,8 +64,63 @@ abstract class CotORM
 	 */
 	public function __construct($data = array())
 	{
-		$this->data = $data;
+		if (count($data) > 0)
+		{
+			foreach ($data as $column => $val)
+			{
+				$this->data[$column] = (static::$columns[$column]['type'] == 'object' && is_string($val)) ?
+					unserialize($val) : $val;
+			}
+		}
 		static::$class_name = get_called_class();
+	}
+
+	/**
+	 * Getter for a column. Shortcut to $this->data($column).
+	 * @param  string $column Column name
+	 * @return mixed          Column value
+	 */
+	public function __get($column)
+	{
+		return $this->data($column);
+	}
+
+	/**
+	 * isset() handler for object properties.
+	 * @param  string  $column Column name
+	 * @return boolean         TRUE if the column has a value, FALSE otherwise.
+	 */
+	public function __isset($column)
+	{
+		return isset($this->data[$column]);
+	}
+
+	/**
+	 * Setter for a column. Shortcut to $this->data($column, $value).
+	 * @param string $column Column name
+	 * @param mixed  $value  Column value
+	 */
+	public function __set($column, $value)
+	{
+		return $this->data($column, $value);
+	}
+
+	/**
+	 * unset() handler for object properties.
+	 * @param string $column Column name
+	 */
+	public function __unset($column)
+	{
+		if (isset($this->data[$column])) unset($this->data[$column]);
+	}
+
+	/**
+	 * Implements IteratorAggregate by returning an iterator for columns data.
+	 * @return ArrayIterator Iterator for the data.
+	 */
+	public function getIterator()
+	{
+		return new ArrayIterator($this->data);
 	}
 
 	/**
@@ -121,8 +176,7 @@ abstract class CotORM
 			{
 				if (array_key_exists($column, static::$columns) && !static::$columns[$column]['hidden'])
 				{
-					return (static::$columns[$column]['type'] == 'object') ?
-						unserialize($this->data[$column]) : $this->data[$column];
+					return $this->data[$column];
 				}
 			}
 			else
@@ -130,9 +184,8 @@ abstract class CotORM
 				$data = array();
 				foreach (static::$columns as $column => $val)
 				{
-					if (static::$columns[$column]['hidden']) continue;
-					$data[$column] = (static::$columns[$column]['type'] == 'object') ?
-						unserialize($this->data[$column]) : $this->data[$column];
+					if ($val['hidden']) continue;
+					$data[$column] = $this->data[$column];
 				}
 				return $data;
 			}
@@ -151,9 +204,9 @@ abstract class CotORM
 		$cols = array();
 		foreach (static::$columns as $column => $properties)
 		{
-			if (!$include_hidden && static::$columns[$column]['hidden']) continue;
-			if (!$include_locked && static::$columns[$column]['locked']) continue;
-			$cols[$column] = static::$columns[$column];
+			if (!$include_hidden && $properties['hidden']) continue;
+			if (!$include_locked && $properties['locked']) continue;
+			$cols[$column] = $properties;
 		}
 		return $cols;
 	}
@@ -172,6 +225,19 @@ abstract class CotORM
 	public static function find($conditions, $limit = 0, $offset = 0, $order = '', $way = 'ASC')
 	{
 		return static::fetch($conditions, $limit, $offset, $order, $way);
+	}
+
+	/**
+	 * Retrieve the first matching object
+	 *
+	 * @param mixed $conditions Numeric array of SQL WHERE conditions or a single
+	 *  condition as a string
+	 * @return CotORM Object
+	 */
+	public static function findOne($conditions)
+	{
+		$res = static::fetch($conditions, 1);
+		return ($res) ? $res[0] : null;
 	}
 
 	/**
@@ -215,7 +281,7 @@ abstract class CotORM
 		$table = static::tableName();
 		$columns = array();
 		$joins = array();
-		foreach (static::columns(true, true) as $col => $data)
+		foreach (array_keys(static::columns(true, true)) as $col)
 		{
 			$columns[] = "`$table`.`$col`";
 		}
@@ -281,7 +347,7 @@ abstract class CotORM
 				if ($column && $operator)
 				{
 					$where[] = "`$table`.`$column` $operator :$column";
-					if (intval($value) == $value) $value = intval($value);
+					if ((intval($value) == $value) && (strval(intval($value)) == $value)) $value = intval($value);
 					$params[$column] = $value;
 				}
 			}
@@ -329,7 +395,7 @@ abstract class CotORM
 			cot_error('InvalidInput');
 			return FALSE;
 		}
-		
+
 		foreach (static::$columns as $column => $properties)
 		{
 			// Verify presence of required fields
@@ -352,28 +418,28 @@ abstract class CotORM
 			{
 				$properties = static::$columns[$column];
 			}
-			
+
 			// Disallow update of primary_key
 			if ($for == 'update' && $properties['primary_key'])
 			{
 				cot_error(cot_rc("CantUpdatePrimaryKeyColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			
+
 			// Disallow insert/update of auto_increment columns
 			if ($properties['auto_increment'])
 			{
 				cot_error(cot_rc("CantSetAutoIncrementColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			
+
 			// Disallow update of locked columns
 			if ($for == 'update' && $properties['locked'])
 			{
 				cot_error(cot_rc("CantUpdateLockedColumn", array('column' => $column)), $column);
 				return FALSE;
 			}
-			
+
 			// Check minimum length
 			if (isset($properties['minlength']) && mb_strlen($value) < $properties['minlength'])
 			{
@@ -384,7 +450,7 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			
+
 			// Check maximum length
 			if (is_int($properties['maxlength']) && mb_strlen($value) > $properties['maxlength'])
 			{
@@ -395,7 +461,7 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			
+
 			// Verify options, but allow NULL if nullable
 			if (isset($properties['options']) && !in_array($value, $properties['options']) && !(is_null($value) && $properties['nullable']))
 			{
@@ -405,7 +471,7 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			
+
 			// Run custom validators
 			if (isset($properties['validators']))
 			{
@@ -439,7 +505,7 @@ abstract class CotORM
 					}
 				}
 			}
-			
+
 			// Check datatype
 			$typecheck_pass = TRUE;
 			switch ($properties['type'])
@@ -474,7 +540,7 @@ abstract class CotORM
 				)), $column);
 				return FALSE;
 			}
-			
+
 			// Check foreign key relation
 			if ($properties['foreign_key'] && $properties['default_value'] !== $value)
 			{
@@ -498,7 +564,7 @@ abstract class CotORM
 	}
 
 	/**
-	 * Prepares data for usage in db query, but doesn't validate anything or 
+	 * Prepares data for usage in db query, but doesn't validate anything or
 	 * throw errors, therefore you should use validateData() as well.
 	 *
 	 * @param array $data Query data as column => value pairs
@@ -593,12 +659,12 @@ abstract class CotORM
 		}
 		return $data;
 	}
-	
+
 	/**
 	 * Generates a random value
 	 *
 	 * @param string $datatype MySQL data type
-	 * @param mixed $maxlength Maximum display length (int) for integers and 
+	 * @param mixed $maxlength Maximum display length (int) for integers and
 	 *  strings, or a string representing precision and scale for floating-point
 	 *  and fixed-point numeric types.
 	 * @param bool $signed Allow negative numbers
@@ -814,11 +880,11 @@ abstract class CotORM
 			DROP TABLE IF EXISTS `".static::tableName()."`
 		");
 	}
-	
+
 	/**
 	 * Seed the table with data
 	 *
-	 * @param array $rowdata Numeric array representing table rows. 
+	 * @param array $rowdata Numeric array representing table rows.
 	 *  Each item should be a numeric array with column data.
 	 * @param array $columnnames Numeric array of column names. [optional]
 	 */
@@ -839,7 +905,7 @@ abstract class CotORM
 				}
 				$values = '(' . implode('), (', $chunk) . ')';
 				$keys = ($columnnames) ? "(`" . implode("`,`", $columnnames) . "`)" : '';
-				
+
 				static::$db->query("INSERT IGNORE INTO `".static::tableName()."` $keys VALUES $values");
 			}
 		}
@@ -848,5 +914,3 @@ abstract class CotORM
 
 // Class initialization for some static variables
 CotORM::__init();
-
-?>
