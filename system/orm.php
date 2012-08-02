@@ -347,7 +347,7 @@ abstract class CotORM implements IteratorAggregate
 				if ($column && $operator)
 				{
 					$where[] = "`$table`.`$column` $operator :$column";
-					if (intval($value) == $value) $value = intval($value);
+					if ((intval($value) == $value) && (strval(intval($value)) == $value)) $value = intval($value);
 					$params[$column] = $value;
 				}
 			}
